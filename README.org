@@ -1,0 +1,884 @@
+#+title: En eksperimentell EDSL prototype for skjemadefinisjoner
+* TOC
+:PROPERTIES:
+:TOC:      :include all
+:END:
+:CONTENTS:
+- [[#toc][TOC]]
+- [[#introduksjon][Introduksjon]]
+- [[#installasjonsinstruksjoner][Installasjonsinstruksjoner]]
+- [[#eksisterende-arbeid][Eksisterende arbeid]]
+- [[#lisp-som-edsl][Lisp som EDSL]]
+- [[#et-par-eksempler][Et par eksempler]]
+- [[#noen-tilfeldige-tanker-relatert-til-skjemamotor-og-frontend][Noen tilfeldige tanker relatert til skjemamotor og frontend]]
+  - [[#diff][Diff]]
+  - [[#hvert-topp-nivå-felt-blir-en-egen-side-med-egen-nav][Hvert topp-nivå felt blir en egen side med egen nav]]
+  - [[#fremdeles-tidlig-stadie][Fremdeles tidlig stadie]]
+- [[#field][Field]]
+- [[#field-spesifikasjon][Field spesifikasjon]]
+- [[#egenskaper][Egenskaper]]
+  - [[#gjenbrukbare-tekster-felter-valideringer][Gjenbrukbare tekster, felter, valideringer]]
+  - [[#felt-typer-referanser-moduler][Felt, typer, referanser, moduler]]
+  - [[#arv][Arv]]
+    - [[#type][type]]
+  - [[#hierarkisk][Hierarkisk]]
+  - [[#skjemamodell-vs-datamodell][Skjemamodell vs Datamodell]]
+    - [[#id][id]]
+  - [[#hjelpefelter-automatisk-summary-og-pdf][Hjelpefelter, automatisk Summary og PDF]]
+    - [[#data-id][data-id]]
+    - [[#visibility][visibility]]
+  - [[#dynamikk][Dynamikk]]
+    - [[#computation][computation]]
+  - [[#text][Text]]
+  - [[#validation][Validation]]
+  - [[#option][Option]]
+  - [[#routing][Routing]]
+    - [[#if][if]]
+- [[#flere-eksempler][Flere eksempler]]
+  - [[#define-type][define-type]]
+  - [[#define-prose][define-prose]]
+  - [[#iff][iff]]
+  - [[#if-else][if-else]]
+  - [[#yesno-og-yesno-group][yes/no og yes/no-group]]
+- [[#fremtidig-arbeid][Fremtidig arbeid]]
+- [[#konklusjon][Konklusjon]]
+:END:
+* Introduksjon
+På forrige workshop nevnte dere litt mer input rundt hvordan man kan implementere et
+Domain Specific Language (DSL) eller Embedded Domain Specific Language (EDSL)
+kan være nyttig.  Dette er språk skreddersydd for ett domene, f.eks. søke i
+tekst (REGular EXpressions), søke i data (Structured Query Language), rik tekst
+formattering i plain tekst (Markdown), styling av html (Cascading Style Sheets),
+men begrepet er vidt og man kan fint tolke et API som et språk/EDSL (verb og
+substantiver). [[https://beautifulracket.com/appendix/why-lop-why-racket.html][Why language-oriented programming? Why Racket?]] er en god artikkel
+som gir mange eksempler på DSL-er.
+
+Jeg har startet på en prototype for et slikt språk, og dette dokumentet
+beskriver noe av designet av dette språket. Dessverre fikk jeg bare en ukes tid
+til design og prototyping, så pdd er det kun ~550 linjer kode, og den bare
+genererer skjemaet og har minimalt av funksjonalitet utover dette. Med et par
+uker til ville jeg forhåpentlig rukket dynamikk og validering i hvert fall.
+Uansett håper jeg tankene her kan vise noen av fordelene med å ha et
+domenespesifikt språk.
+
+Jeg har benyttet Lisp (The Programmable Programming Language), men det er ingen
+ting i veien for at konseptene kan tas i bruk med annen teknologi så lenge man
+kan beskrive data og logikk, f.eks. med Json og JavaScript eller XML og C#. Jeg
+mener Lisp passer veldig godt akkurat her og at andre teknologiske valg ikke kan
+gi samme oversikt eller muligheter uten mye mer arbeid, men så er det selvsagt
+mange andre hensyn å ta for å finne beste teknologi for jobben.
+
+Håper det jeg nevner her kan bidra til å belyse hvor store besparelser man kan
+få ved å uttrykke seg i form av et "skjemadefinisjonsspråk", og hvor mye
+fleksibilitet man får om man lager dette som en EDSL i et kraftig vertsspråk.
+Jeg kunne raskt og med få linjer kode kan utvide språket med nye
+moduler/konsepter som ~define-prose~, ~iff~, ~if/else~, ~yes/no~,
+~yes/no-group~. Dette er en stor fordel med "embedded" strategien samt å benytte
+et vertsspråk som gjør det mulig å utvide språket. Det er umulig å tenke på alt,
+så det er bedre å åpne muligheter for brukerene slik at de kan finne nyttige
+abstraksjoner, eksperimentere, og videreutvikle språket. Vi må tilrettelegge for
+at nivået er lavt nok til at det er mulig (se hvordan field specification
+støtter ~make-field~ og ~define-field~ samt funskjoner og makroer), og samtidig
+at vi har et så høyt nivå at man kan uttrykke ting i domenet uten unødige
+abstraksjoner. Dette er en lagdeling som er for lite brukt i praksis, men som
+jeg mener gir veldig mening i en EDSL. Som regel splittes lagene opp ut fra
+"teknologi" (db, ui, frontend, backend, domene), og innad hvert lag har man
+abstraksjonsnivåer fra lav til høy, men ofte uten å kunne hoppe i lagene. La oss
+kalle lagdelingen jeg har gjort her for stratifisert design etter 1987
+artikkelen "Lisp: A Language for Statified Design".
+* Installasjonsinstruksjoner
+Prototypen er ikke i en tilstand der det gir mye mening å kjøre den, men om man
+har lyst allikevel å leke seg litt, må man installere noe manuelt.
+
+Prototypen er avhengig av [[http://www.sbcl.org/][SBCL]] (kompilator/runtime/debugger) og [[https://www.quicklisp.org/beta/][quicklisp]]
+(pakkehåndtering).
+
+Etter å ha installert disse, klon repo lokalt, start =sbcl=, lag en applikasjon,
+og start webserveren.
+
+#+begin_src lisp
+$ git clone git@github.com:simendsjo/skjemadefinisjon-edsl-prototype-for-altinn-workshop.git
+$ cd skjemadefinisjon-edsl-prototype-for-altinn-workshop
+$ sbcl
+#+end_src
+
+#+begin_src lisp
+,* (asdf:load-asd (merge-pathnames "app.asd"))
+,* (ql:quickload :app)
+,* (in-package :app)
+,* (define-app min-applikasjon
+     (paragraph "Hei!")
+     (string en-tekst :caption "Og en tekst!"))
+,* (start-server)
+#+end_src
+
+Man kan droppe første ~asdf:load-asd~ dersom man kloner eller lager en symlink
+til =~/common-lisp= eller =~/quicklisp/local-projects=.
+
+Naviger til [[http://localhost:5055]], og du skal se =MIN-APPLIKASJON=. Trykker du
+på denne startes en instans. Går du tilbake til den url-en vil du også se
+instansene listet opp og kan hoppe tilbake. Endringen man gjør sendes til
+backend, og man kan se det ved å evaluere ~*appdata*~. ... men det gir lite
+mening å leke seg med dette da det er alt for lite som er implementert.
+
+Man kan også starte noen av demo applikasjonene, f.eks ~(app-demo-complex)~. Se
+=demos.lisp= for flere eksempler.
+* Eksisterende arbeid
+Søker man på relaterte ting som questionnaire, survey eller data collection, får
+man treff i både hyllevare, kodebaser og artikler.  Ikke sikkert noe er
+innertier, men antageligvis mye bra å lære av. Jeg har ikke sett på noen av
+disse selv, kun søkt frem ting som kan virke relevant med utgangspunkt i
+erfaringene mine relatert til datainnhenting til (primært) markedsanalyse.
+
+DSL-ene (Topsl, SURVEYMAN, SuML, SLang og QSL) burde man nok se nærmere på, og
+Topsl benytter liknende teknologi og framgangsmåte som jeg har gjort ser det ut
+som. Som med det meste av artikler er mye dessverre bak paywalls, men det er
+bare å sende mail til forfatterne, så sender de alltid over.
+
+- [[https://www.researchgate.net/publication/250058906_Topsl_A_domain-specific_language_for_on-line_surveys][Topsl: A domain-specific language for on-line surveys]]
+  - [[http://people.cs.uchicago.edu/~jacobm/pubs/topsl.pdf][Artikkelen]]
+  - [[http://topsl.sourceforge.net/][Hjemmesiden]]
+  - Her er det noen som faktisk har laget en EDSL i Racket (er fra 2004, så før det ble døpt om
+    fra PLT Scheme).
+  - Dessverre fant jeg denne først nå rett før jeg oversender dette, så jeg har
+    ikke rukket å se på den.
+  - Regner med at såpass mye er likt med mellom denne og det jeg har
+    prototypet at fordeler og ulemper relatert til EDSL (i Lisp) er
+    sammenlignbare, så jeg anbefaler å lese denne.
+- [[https://racket-lang.org/][Racket, the Language-Oriented Programming Language]]
+  - [[https://beautifulracket.com/appendix/why-lop-why-racket.html][Why language-oriented programming? Why Racket?]]
+  - [[https://beautifulracket.com/][Beautiful Racket - An Introduction to Language-Oriented Programming Using Racket]]
+  - Antageligvis det beste alternativet for å lage en DSL eller EDSL med svært god
+    margin da språket er utviklet med det formålet.
+- [[https://www.researchgate.net/publication/263352298_SurveyMan_Programming_and_Automatically_Debugging_Surveys][SURVEYMAN: Programming and Automatically Debugging Surveys]]
+  - [[https://github.com/SurveyMan/SurveyMan][Github]]
+- [[https://www.researchgate.net/publication/25909828_SuML_A_Survey_Markup_Language_for_Generalized_Survey_Encoding][SuML: A Survey Markup Language for Generalized Survey Encoding]]
+- [[https://www.researchgate.net/publication/351269401_DSL_Based_Approach_for_Building_Model-Driven_Questionnaires][DSL Based Approach for Building Model-Driven Questionnaires]]
+- [[https://www.researchgate.net/publication/341469408_SLang_A_Domain-specific_Language_for_Survey_Questionnaires][SLang: A Domain-specific Language for Survey Questionnaires]]
+- [[https://www.researchgate.net/publication/290651890_QSL_A_specification_language_for_e-questionnaire_systems][QSL: A specification language for e-questionnaire systems]]
+- [[https://www.researchgate.net/publication/224694423_Using_XML_as_a_questionnaire_specification_language][Using XML as a questionnaire specification language]]
+- [[https://www.researchgate.net/publication/286420963_Mobile_Data_Collection_Forms_Based_on_DSLs_with_Different_Levels_of_Abstraction][Mobile Data Collection Forms Based on DSLs with Different Levels of Abstraction]]
+- [[http://www.triple-s.org/][triple-s: The standard for transferring data and variables between survey systems]]
+  - Kanskje mest relevant når man skal se på datamodeller/SERES, men her er det
+    datatyper, hierarkier m.m.
+- [[https://devblogs.microsoft.com/dotnet/using-c-source-generators-to-create-an-external-dsl/][Using C# Source Generators to create an external DSL]]
+- [[https://www.pl.informatik.uni-mainz.de/files/2019/04/lwc13-questionnaire.pdf][Embedding a Questionnaire DSL with SugarJ]]
+- [[https://github.com/Nedervino/QuestionnaireDSL][QL/QLS - A DSL Questionnaire Generator]]
+- [[https://github.com/Meess/questionnaire-dsl][NEWSKQL - New Schneider Kalf Questionnaire Language]]
+- [[https://www.blaise.com/products/general-information/14-products/blaise/13-datamodels-and-questionnaires][Blaise]]
+
+Jeg vil også tro de fleste økosystemer har diverse bibliotek bygget som EDSL-er for
+å lage forms for html og andre UI rammeverk. Det blir mye av det samme som en
+"questionnaire" eller "Altinn3 app", så disse kan man sikkert også se litt på.
+Et raskt søk viste bl.a.:
+- [[https://medium.com/fuzzy-sharp/building-a-type-safe-embedded-dsl-for-form-components-with-validation-e7ffaaf537e4][Using PureScript to create a domain-specific language for building forms with validation]]
+- [[https://github.com/mmontone/cl-forms][cl-forms (Common Lisp -> html)]]
+* Lisp som EDSL
+Lisp har historie tilbake til 1958, og er det nest eldste språket i bruk i dag.
+I motsetning til det eldste, FORTRAN, er Lisp i bruk mange steder, det finnes
+moderne utgaver, og det er mange som liker det. Clojure er kanskje den Lisp
+dialekten flest har hørt om. AutoCAD benytter også Lisp som scriptingspråk,
+AutoLISP. Editoren jeg bruker, Emacs, har sin Emacs Lisp, og operativsystemet
+mitt, Guix, benytter Guile (Scheme).  Her har jeg brukt Common Lisp
+(konsolidering av flere forskjellige Lisp dialekter) fra 1984 som fikk en ANSI
+standard i 1994 og har vært uendret siden.  Noe av grunnen til at det overlever
+så godt er at det er så utvidbart slik at man kan utvide språket med  bibliotek
+der andre språk krever endring i selve språket med syntaks og semantikk.
+
+Før vi begynner på noen eksempler er det greit å gi en bitteliten primer så man
+kan lese eksemplene. Syntaksen kalles [[https://en.wikipedia.org/wiki/S-expression][Symbolic Expressions]] (også kalt
+=s-expressions=, =sexpr= eller =sexp=), og Lisp kjører prefiks notasjon i stedet
+for infiks som de fleste andre språk. Parenteser er en liste, og mellomrom er
+skille mellom felt.  ~(1 2 3)~ er dermed en liste med elementene ~1~, ~2~ og
+~3~.  S-expressions er forresten også i bruk andre steder, som f.eks. i
+[[https://tree-sitter.github.io/][tree-sitter]] som benyttes av GitHub og en del teksteditorer.
+
+Men fordi Common Lisp er veldig utvidbart, kan man fint benytte infiks notasjon
+(Curly-infix-expressions/c-expressions), "vanlig" funksjonskall
+(Neoteric-expressions/n-expressions) eller Sweet expressions (indentert som
+Python, F# eller Haskell, også kalt t-expressions). Og man kan mikse dem opp som
+man ønsker; se [[https://sourceforge.net/p/readable/wiki/Home/][Readable]] pakken. Da kan man skrive ~{ a + {b * c}}~ i stedet for
+~(+ a (* b c))~.
+
+Når man evaluerer en sexp liste vil første element tolkes som en funksjon eller
+makro, og blir kallet av elementene som argumenter; ~(f 1 "to")~ kaller
+funksjonen ~f~ med to argumenter, ~1~ og ~"to"~.  Som med andre språk vil
+argumentene evalueres før funksjoner kalles, så ~(f a b)~ vil først evaluere ~a~
+og ~b~, og så kalle funksjonen.
+
+Ser man ~'~ er det et "quoted" uttrykk, med andre ord ren data og ingen ting
+inni der evalueres. ~'(f a b)~ er det samme som ~(list 'f 'a 'b)~ (eller ~(list
+(quote f) (quote a) (quote b))~, men det er ganske kronglete å skrive). Man har
+også quasiqute som gjør at man kan velge å evaluere visse ting. ~`(f ,a b)~ vil
+evaluere ~a~ (altså ~(list 'f a 'b)~), men bruken av ~quote~, ~quasiquote~,
+~unquote~ og ~unquote-splicing~ er noe jeg har forsøkt unngått i det lengste ved
+å lage et eget språk her, men det kommer frem i eksemplene der jeg utvider
+språket vårt med nye muligheter.
+
+Nøkkelord er symboler som starter med ~:~, og brukes mye for å navngi valgfrie
+parametere, så ~(make-field :id 'foo)~ kaller funskjonen ~make-field~ med alle
+parametere som default bortsett fra feltet ~id~ der vi sender inn symbolet ~foo~
+som argument. Common Lisp gjør alle symboler om til store bokstaver, så en del
+output her kan se litt skrikete ut. Eksempelvis blir uttrykket over vist som
+~(MAKE-FIELD :ID 'FOO)~ om man skriver det ut. Lister på formen ~(key1 value1
+key2 value2)~ som ~(:type 'typen :id 'id-en)~ kalles property lists, eller
+plists, og er en lettvint måte å beskrive lister av nøkkel/verdi par. Noe jeg
+ikke bruker her, men som også er mye brukt er association lists, eller alists,
+på formen ~((key1 . value1) (key2 .  value2))~ som bare er en annen måte å
+skrive ~((cons key1 value1) (cons key2 value2))~ på. Parene her kalles "dotted
+pair".
+
+Det er nok av ting å lære seg om Lisp, og i hvert fall Common Lisp som er veldig
+stort og komplekst, men mye av tanken bak en DSL er å fokusere på domenet og
+slippe mest mulig annet.  Med en EDSL vil derimot alltid vertspråket lekke
+gjennom i mindre eller større grad, og det kan også være fordeler å gjenbruke
+mest mulig av vertsspråket.
+
+Lisp er homoiconic ("samme representasjon"), noe som vil si at data og kode er
+representert likt, som igjen gjør det veldig lett å skrive kode som skriver kode
+(metaprogrammering). Dette og s-expressions sammen med makroer er en grunn til
+at Lisp er veldig godt skikket som vertsspråk for skjemadefinisjoner.  En makro
+er en funksjon der argumentene *ikke* evalueres, og makroen skal returnere en
+liste som blir tolket som kode.  Hvordan makroen velger å tolke data, hva man
+evaluerer, hvordan og hvor ofte, styres helt av makroen. Dette gjør at vi kan
+lage nye språk med helt annen syntaks og semantikk enn hva Lisp har -- altså
+utvide programmeringsspråket eller lage helt andre språk.  Til tross for at man
+kan ha helt forskjellig syntaks enn Lisp, har jeg valgt å benytte samme syntaks
+slik at både skjemadefinisjon og dynamikk flyter inn i hverandre.  Men det er
+uansett viktig å tenke at dette er et eget språk med sin egen semantikk.
+
+En ganske annerledes ting i Common lisp er at false, tom liste og "ingen"
+alle er definert ved den samme verdien, ~nil~. I praksis er det ikke noe stort
+problem, og en del blir mye smidigere, men det kan hende det lekker gjennom noe
+sted i teksten her i tilfelle dere stusser. True er også bare ~t~, men alle
+ikke-nil verdier evalueres som ~t~ i uttrykk som forventer det. Dermed vil
+funksjoner gjerne returnere data i stedet for kun ~t~. En funksjon som skal se
+om noe eksisterer kan like gjerne returnere det den finner i stedet for ~t~.
+* Et par eksempler
+Jeg tenker det er greit å starte med et par eksempler bare for å vise hvordan en
+applikasjon kan defineres.  Den primære inngangen er en ~define-app~.  På sitt
+enkleste trenger den kun en id.
+
+#+begin_src lisp
+(define-app en-tom-applikasjon)
+#+end_src
+
+Merk at jeg ikke har noen ~'id~ slik jeg har forklart Lisp fungerer, det er
+fordi ~define-app~ er en makro, og jeg har valgt å skjule mest mulig av disse
+snodige tingene der. Jeg velger derfor å tolke det første feltet her som et
+symbol. Tilsvarende er det for andre ting i denne og andre makroer.
+
+Å legge inn nye felter i skjema er one-linere.
+
+#+begin_src lisp
+(define-app enkle-datafelt
+  (paragraph "Hello, World!")
+  (string et-tekstfelt :caption "Label her")
+  (integer og-et-tall))
+#+end_src
+
+Man kan gruppere ting og ha routing
+
+#+begin_src lisp
+(define-app grupper
+  (bool foo?)
+  (group :if foo?
+         (string kun-om-foo-er-huket-av)
+         (string og-et-annet-felt)))
+#+end_src
+
+Repetisjoner kan abstraheres ut til nye komponenter av brukeren og benyttes som
+om det er innebygget
+
+#+begin_src lisp
+(define-app bruker-yesno
+  (yes/no-group foo?
+                (string kun-om-foo-er-huket-av)
+                (string og-et-annet-felt)))
+#+end_src
+
+Man kan definere valideringer
+
+#+begin_src lisp
+(define-app med-validering
+  (string epost-ish
+          :validations ((string-contains-p "@" it))))
+#+end_src
+
+Fordi det er en EDSL bruker vi vertsspråket, og kan da lage nye abstraksjoner
+
+#+begin_src lisp
+;; Kan lage en bedre epostvalidering her.
+(defun is-email? (str)
+  (string-contains-p "@" str))
+
+(define-app med-validering
+  (string epost-ish
+          :validations ((is-email? it))))
+#+end_src
+
+Om man ikke har definert ting inline (som tekst), ser man om det er definert
+høyere opp i hierarkiet.
+
+#+begin_src lisp
+(define-app med-tekster
+  :texts ((feltet :nb "Feltet" :nn "Feltet"))
+  (string feltet))
+#+end_src
+
+
+Et felt er også en komponent
+
+#+begin_src lisp
+(define-app bruker-en-komponent
+  (group :texts ((felt1 :nb "Felt1")
+                 (felt2 :nb "Felt2"))
+         (string felt1)
+         (string felt2)))
+#+end_src
+
+Og en komponent kan flyttes ut av appen og gjenbrukes andre steder
+
+#+begin_src lisp
+(define-type group min-komponent
+    :texts ((felt1 :nb "Felt1")
+            (felt2 :nb "Felt2"))
+  (string felt1)
+  (string felt2))
+
+(define-app bruker-ekstern-komponent
+  (min-komponent))
+#+end_src
+
+Komponentene støtter alle ting et vanlig felt støtter fordi det er et vanlig felt.
+
+#+begin_src lisp
+(define-type string email
+  :texts ((email :no "Epost"))
+  :validations ((is-email? it)))
+
+(define-app bruker-email-komponent
+  (email kontaktperson-epost))
+#+end_src
+
+Man kan nøste ting i dypere hierarkier om nødvendig.
+
+#+begin_src lisp
+(define-app enkel-applikasjon
+    :texts ((navn :nb "Navn" :en "Name"))
+    (page (bool et-felt)
+          (group :if et-felt
+                 (string fornavn)
+                 (string etternavn)
+                 (string :read-only t
+                         :value (concat fornavn " " etternavn)))))
+#+end_src
+
+Og man kan ha mer komplekse definisjoner
+
+#+begin_src lisp
+(define-app krt-1127a-1
+    :types ((integer sum
+                     :data-id nil
+                     :caption "a+b+c="
+                     :value (+ (or a 0) (or b 0) (or c 0))
+                     :texts ((sum-zero :nb "Summen er null"
+                                       :en "Sum is zero"))
+                     :validations ((and (zerop it) (warn sum-zero))))
+            (integer positive-integer
+                     :texts ((non-positive :nb "Verdien må være positiv"
+                                           :en "Value has to be positive"))
+                     :validations ((and (negative-integer-p it) (error non-positive)))))
+    (page (string some-string :caption "en tekst her takk")
+          (integer some-integer :caption "og en int")
+          (bool some-bool :caption "checkbox her"))
+    (page (yes/no-group foo "Foo?"
+                        (integer some-i :caption "Et tall over 10 takk")
+                        (iff (> some-i 10)
+                             (positive-integer a :caption "a: pos int")
+                             (positive-integer b :caption "b: pos int")
+                             (positive-integer c :caption "c: pos int")
+                             (sum)))
+          (yes/no-group bar "Bar?"
+                        (a)
+                        (b)
+                        (c)
+                        (sum))))
+#+end_src
+
+Og definisjonen over kompileres ned til rene datastrukturer som aldri vil
+endres. Her kan man begynne å se av fordelen av å ha et domenespesifikt språk
+som kan generere mer komplekse strukturer. Denne ~yes/no-group~ (som igjen
+bruker ~yes/no~ som bruker ~bool~ og ~iff~, som bruker ~group :if~) laget jeg
+spesifikt for dette skjemaet, men den kan fint gjenbrukes på tvers for alle.
+~positive-integer~ er også noe man kanskje heller skal legge ut av skjemaet så
+det kan gjenbrukes.
+
+Ettersom output for denne lille applikasjonen er 440 linjer, har jeg splittet
+den opp i en [[https://gist.github.com/simendsjo/791975d598523770e35c009f819c0978][gist]]. Den er ikke veldig interessant, og mest for å vise at korte
+skjemaer kan ekspandere til ganske mye kode.
+* Noen tilfeldige tanker relatert til skjemamotor og frontend
+Når man har dynamiske utregninger, må man passe på å se på alle berørte felter
+ved en endring, og man må rapportere tilbake resultatene av endringen.
+
+Flyten:
+- Backend sender diff av utregninger
+  - Utregninger som har endret seg
+    - Valideringer/verdier/tekster
+- Frontend tolker og rendrer dette
+- Frontend sender felt+verdi når den endres
+  - Og vi er tilbake til steg 1
+** Diff
+En diff er bare endringer siden forrige gang man sendte inn noe. Noen
+valideringer kan forsvinne, noen kan komme til. Noen verdier kan få nye verdier
+grunnet kalkuleringer, og noen dynamiske tekster kan endres. Alle disse tingene
+kan kommuniseres med en liste av ny/endret/slettet på formen ~(state type id
+data)~, eksempelvis:
+#+begin_src lisp
+'((changed field-value #:computation2525 (:field-id et-felt :new-value "kalkulert verdi"))
+  (deleted validation #:validation222)
+  (changed field-if #:computation1267 (:field-id annet-felt :new-value t))
+  (added validation #:validation12523 (:severity error :message "Kan ikke være blank" :data (:field-id feltet))))
+#+end_src
+** Hvert topp-nivå felt blir en egen side med egen nav
+I dag virker det som hver side blir rendret i sin helhet, og man trenger en nav
+for å navigere mellom sidene. For enkle skjemaer kan dette abstraheres bort ved
+at man alltid rendrer toppnivå elementet, og navigasjon alltid ligger med og
+navigerer mellom disse. Ønsker man å rendre kun ett felt legger mad det på
+toppnivå, og ønsker man rendre mange felt på en side grupperer man dem. Vet ikke
+om det er nødvendig med konseptet "side". Mulig det kan være nyttig å overstyre
+standardnavigasjon, men det er ikke noe jeg har designet for.
+
+Ved rendring av Summary ønsker man å rendre alle topp-nivå. Ved rendring av
+en Utvikling ønsker man dette samt felter som egentlig ikke vises grunnet ~:if~,
+~:visible~ og ~:visibility~ for å få et overblikk. Ved rendring av Preview kan
+man også ønsker litt mer info enn det vises for sluttbruker. Alle disse modusene
+kan trenge sin egen navigasjon, og i så fall kanskje det ikke gir mening å bake
+det inn i skjemadefinisjonen.
+** Fremdeles tidlig stadie
+Her har jeg dessverre ikke rukket tenke veldig langt, men noe som dette kan
+gjøre det unødvendig å ha duplisert logikk frontend. Frontend må kjenne til
+hvordan man endrer tilstand basert på dette (endrer "visible", "required" osv),
+men trenger ikke faktisk kjøre valideringer f.eks.
+* Field
+#+begin_quote
+It is better to have 100 functions operate on one data structure than to have 10
+functions operate on 10 data structures
+
+    -- Alan Perils
+#+end_quote
+
+Den mest primære datastrukturen i prototypen er ~field~. Jeg har designet den
+slik at både en type, et enkelt felt, referanse til et eksisterende felt (vises
+flere steder) og moduler/komponenter alle beskrives ved hjelp av samme
+datastruktur. Det vil si at alle kan definere sin egen routing, options,
+tekster, valideringer, barn (som er også er felt) osv.
+
+Viser selve typen her, men man konstruerer den gjerne via en "field
+spesifikasjon".
+#+begin_src lisp
+(defstruct (field (:copier nil))
+  (id nil :read-only t :type symbol)
+  (voldemort nil :read-only t :type boolean)
+  (type 'string :read-only t :type symbol)
+  (data-id nil :read-only t :type symbol)
+  (value nil :read-only t)
+  (read-only nil :read-only t)
+  (if t :read-only t)
+  (ui nil :read-only t)
+  (visible t :read-only t)
+  (texts '() :read-only t)
+  (caption nil :read-only t)
+  (options nil :read-only t)
+  (visibility 'user :read-only t)
+  (required nil :read-only t)
+  (validations '() :read-only t)
+  (types '() :read-only t)
+  (children '() :read-only t))
+#+end_src
+* Field spesifikasjon
+Som man så i ~define-app~ kunne man beskrive et felt bare med ~(type)~, eller
+~(type id)~, men her har jeg designet inn en del muligheter for at man skal
+kunne skrive minst mulig tekst og allikevel ha mye fleksibilitet.
+
+Hver av disse spesifikasjonene skrives ned til makroen ~define-field~, som igjen
+konstruerer et felt (~make-field~ konstruktøren).
+
+I stedet for å skrive full spesifikasjon her, skriver jeg heller opp noen
+eksempler.
+- ~(make-field ...)~ :: ~(make-field ...)~. Denne har noen skrevet manuelt for full fleksibilitet.
+- ~(define-field ...)~ :: ~(define-field ...)~. Denne har noen skrevet manuelt for full fleksibilitet.
+- ~(en-makro ...)~ :: Ekspander makro, kjør igjen på resultatet
+- ~(en-funksjon ...)~ :: Kjør funksjon, kjør igjen på resultatet
+- ~(type)~ :: ~(define-field :type type)~
+- ~(type id)~ :: ~(define-field :type type :id id)~
+- ~(type id :a 1)~ :: ~(define-field :type type :id id :a 1)~
+- ~(type id :a 1 (c1))~ :: ~(define-field :type type :id id :a 1 :children ((define-field :type c1))~
+- ~(type :a 1)~ :: ~(define-field :type type :a 1)~
+- ~(type :a 1 (c1))~ :: ~(define-field :type type :a 1 :children ((define-field :type c1)))~
+- ~(type (c1) (c2))~ :: ~(define-field :type type :children ((define-field :type c1) (define-field :type c2)))~
+
+Syntaksen støtter at man veldig raskt kan lage hierarkiske skjemaer, og den har
+gode defaults så man slipper spesifisere mer enn det man ønsker endre. Ved å
+støtte ~make-field~ og ~define-field~ får man veldig stor fleksibilitet som
+sluttbruker ved at man kan unngå hele spesialsyntaksen og definere
+sluttresultatet direkte.
+
+Ved å støtte makro og funskjoner, kan man lett utvide språket med ny
+funksjonalitet.  Alle feltene (~page~, ~group~, ~iff~, ~paragraph~ etc etc) er
+definert enten bare som enkle definisjoner, eller som en funksjon/makro som har
+noe beregninger før den returnerer en definisjon. Det er ingen spesialhåndtering
+eller kjennskap til noen av disse utover de få linjene som definerer dem.
+
+Dette er en av de virkelig store fordelene ved å lage det som en EDSL --
+sluttbruker kan få enormt stor fleksibilitet langt utover det man designer inn i
+DSL-en.
+
+Merk at en designfeil jeg har her er at ~en-funskjon~ og ~en-makro~ kan være en
+vilkårlig funksjon eller makro, ikke er "feltfunksjon" eller "feltmakro". Det
+har vist seg lett at det plukkes opp funksjoner og makroer som ikke var tiltenkt
+bruk i en app, som f.eks. at en ~sum~ funksjon ble plukket opp når jeg mente å
+referere til feltet ~sum~ jeg hadde laget tidligere. Det er lett å rette dette
+ved å lage en ~define-field-function~ og ~define-field-macro~, men det har jeg ikke
+rukket.
+* Egenskaper
+** Gjenbrukbare tekster, felter, valideringer
+Egenskapene kan legges direkte på ~field~, men de kan også fint legges utenfor
+og gjenbrukes på tvers slik man gjør med ~define-type~. Her kan man fint også ha
+~define-validation~ osv. Slike definisjoner på toppnivå trenger noe
+spesialstøtte så koden vet hver den skal lete etter slike. Alternativt kan de
+kun returnere typen, men da må man selv lagre den i en variabel ~(defconstant
+min-validering (define-validation ...))~. Uansett er designet her laget så man
+kan gjenbruke på tvers.
+** Felt, typer, referanser, moduler
+Det kan se ut som man klarer å uttrykke alle disse konseptene med én
+datastruktur, ~field~, og man har da veldig mye gjenbruk med veldig lite kode.
+** Arv
+*** type
+~field~ beskriver både et datafelt, en referanse, en type og en modul. ~type~
+refererer da til supertypen. ~(string en-tekst)~ har da ~:type string~ og
+definerer selv typen ~en-tekst~. Denne kan man benytte videre som ~(en-tekst)~
+for å lage et nytt felt uten databacking, ~(en-tekst :data-id en-tekst)~ for å
+referere til samme databacking, ~(en-tekst ny-tekst)~ for å lage
+et nytt felt med annen databacking, ~(en-tekst ny-tekst :data-id en-tekst)~ for
+ny type med samme databacking osv. Hvert felt kan overstyre ting fra supertypen,
+men ellers må man ha gode defaults på hvordan ting slås sammen.  Ting som tekst
+er union med overstyring, valideringer er union, data-id overstyrer osv.
+
+Eksempelvis har vi ~positive-integer~ som er en ~integer~, men med noen flere
+valideringer.
+** Hierarkisk
+Når man f.eks. skal slå opp en tekst, må man slå opp i hierarkiet. Dvs at man
+kan definere tekst på applikasjonsnivå, men man kan også legge det rett på
+feltet/typen/modulen. På den måten kan man lage frittstående moduler som kan
+være av vilkårlig kompleksitet. Ved å ha en EDSL, kan disse modulene eventuelt
+ta parametere, kontakte eksterne tjenester m.m.
+
+Ved at det er hierarkisk får man også alle valideringer videre opp i hierarkiet
+med på kjøpet.
+
+Nå valgte jeg å legge ~:children~ inn på et felt, men man kunne like gjerne hatt
+~:parent-id~ i stedet. Uansett er man avhengig av å ha lookups begge veier, og
+nå lager jeg en child->parent lookup.
+** Skjemamodell vs Datamodell
+*** id
+Id-en til feltet definerer hva datafeltet heter. Mange felter trenger ikke en
+egen id, eller de kan ha en generert unik id, som grupper, statiske tekster osv.
+Når det er en generert id kan man ikke referere til den, og jeg markerer den da
+som et "Voldemort" felt (He Who Must Not Be Named) slik at man vet den er
+autogenerert.
+
+Man refererer kun til feltet ved bruk av denne id-en og ikke hva feltet heter
+videre i datamodellen (se ~data-id~). Man kan fint konvertere SERES over til
+disse modellene, eller disse modellene over til SERES.
+** Hjelpefelter, automatisk Summary og PDF
+*** data-id
+Hvilken navn den skal få i databasen. Default til ~id~, men om den mangler vil
+ikke noe persisteres.
+*** visibility
+Hvor synlig et felt er ~user~ er tilgjengelig for alle, ~owner~ kun for
+skjemaeier (ikke i summary, pdf), og man kan kanskje ha ~app~ som tilsier at den
+er intern for applikasjonen og dermed et rent hjelpefelt. Summary er dermed alle
+felter der ~:if~ evaluerer til true og visibility er user. PDF til eieren er
+tilsvarende men for owner. En "preview" kan droppe å evaluere ~:if~ og heller
+liste opp alle, men printe selve uttrykket i UI (derfor jeg la med ~:original~
+for ~computation~).
+** Dynamikk
+*** computation
+Tanken her er at et uttrykk blir tolket ned til en datastruktur som ved et
+senere tidspunkt blir evaluert i kontekst av feltet man skriver til,
+skjemadefinisjon og skjemadata. Med dette kan man uttrykke dynamikk uavhengig av
+hvor man ønsker å ta det i bruk. Det kan benyttes på valideringer, tekster,
+options, require, read-only, value osv. Man kan også definere ting ute av
+kontekst av en applikasjon, og dermed ha noe som kan gjenbrukes på tvers av
+skjemaer. Eneste grunn til å konvertere den til en annen datastruktur er for å
+kunne løse parsingen én gang i stedet for å måtte gjøre det for hele skjemaet
+hver gang det kommer en endring.
+
+Hver utregning inneholder informasjon om hvilke felter den er avhengig av,
+slik at man kan traversere en graf når noe endres og evaluere på nytt. Hver
+utregning har også en unik id som blir generert slik at man kan referere til
+nøyaktig utregning ved endring, og f.eks. frontend kan benytte dette til å
+erstatte/slette en valideringsmelding.
+
+Et uttrykk på formen ~(+ a b c)~ vil da tolkes ned til
+#+begin_src lisp
+(make-computation :depends-on ((value a) (value b) (value c))
+                  :original (+ a b c)
+                  :reduced (+ (field-value 'a) (field-value 'b) (field-value 'c)))
+#+end_src
+
+Her har jeg tolket at alle symboler som ikke er bundet (her a, b, c), tolkes som
+at man ønsker å referere til verdien til feltet.
+
+For valideringer kan man kanskje ha ~(when (or (< a 0) (= it "foo"))) (error "a
+må være positiv og feltet må være 'foo'"))~. For feltet ~q~ får vi da.
+#+begin_src lisp
+(make-computation :depends-on ((value a) (value q))
+                  :original ((when (or (< a 0) (= it "foo"))) (error "a må være positiv og feltet må være 'foo'"))
+                  :reduced ((when (or (< (field-value 'a) 0) (= (field-value 'q) "foo"))) (error "a må være positiv og feltet må være 'foo'")))
+#+end_src
+
+Her tenker jeg det kan gi mening å ha en anaforisk ~it~ som peker til felt/verdi
+man evaluerer i kontekst av.
+
+Jeg har dessverre ikke fått tid til å skrive parsing eller evaluering av denne.
+Dumt da det ville vært nyttig for workshoppen. Regner også med at designet kan
+endre en del når man først begynner implementasjonen.
+** Text
+Syntaksen her er ~(id :lang text)~. Man kan bruke dynamikk, og dermed ha ~(spm1
+:no "tekst" :nn "nynorsk")~, eller ~(spm1 :no (if (equal it "a") "TEKST"
+"tekst"))~.
+** Validation
+En validering er også en dynamisk utregning som returnerer en liste av
+trace/info/warn/error/fatal (severity). Disse resultatene burde nok også ha en
+~visibility~ også slik at man ikke trenger å vise alt til brukeren.
+
+Man kan f.eks. si at warn og error som standard går til ~user~ og de andre til
+~owner~, og at man må overstyre dersom man ønsker det.
+
+#+begin_src lisp
+((when (empty? it) (info "tom"))
+ (unless (> a 10) (warn "a <= 10"))
+ (if (equal 10 b) (error "b = 10" :visibility owner)))
+#+end_src
+
+Fordi jeg ikke har implementert dynamikk enda, har jeg heller ikke implementert
+noe her.
+
+#+begin_src lisp
+(defstruct (validation-result (:copier nil))
+  (severity 'info :type severity :read-only t)
+  (visibility 'user :type 'visibility :read-only t)
+  (message "" :type string :read-only t)
+  (data nil :read-only t)
+  (exception nil :read-only t))
+#+end_src
+** Option
+Options er både en ting for validering, og for å kunne hjelpe brukere som f.eks.
+å benytte en dropdown liste. Jeg har implementert at options også en en ~field~
+slik at de får ting som ~visible~ og ~required~ og mulighet for ~computation~.
+Usikker om dette er en farbar vei. Burde kanskje også hete ~choices~ da man må
+velge en av dem dersom en verdi settes.
+** Routing
+*** if
+Routing innebærer om noe eksisterer eller ikke. Om det ikke eksisterer vil data
+mangle når man ser på det (selv om det ligger lagret), den kan ikke vises osv.
+Benytter her samme ~computation~ som ellers, og den må evaluere til en bool.
+
+Med routing er det ofte lite behov for ~:visible~, og lite behov for dynamisk
+~:required~.
+* Flere eksempler
+Har lyst til å komme med et par eksempler som viser hvordan jeg har åpnet for å
+utvide språket. ~define-type~ trenger litt spesialhåndtering slik at andre kan
+finne definisjonene som genereres på toppnivå, men ellers kunne de vært utviklet
+utenfor selve skjemamotoren av en tredjepart, men de integrerer som at de er
+innebygget.
+** ~define-type~
+~field~ har allerede feltet ~types~ som gjør at man kan lage gjenbrukbare
+felter, men det vil også være nyttig å kunne dele slike på tvers av felter. For
+dette laget jeg en enkel makro som registrerer disse på toppnivå.
+
+Med en slik kan vi definere typer som kan gjenbrukes på tvers, og hvem som helst
+kan lage nye typer. Eksempel på bruk:
+
+#+begin_src lisp
+(define-type nil +builtin+
+  :data-id nil)
+
+(define-type +builtin+ +field+
+  :data-id nil)
+
+(define-type +field+ string
+  :data-id nil
+  :ui (lambda (app field) (spinneret:with-html
+                            (field-label app field)
+                            (field-input app field :string))))
+#+end_src
+
+Selve makroen:
+
+#+begin_src lisp
+(defparameter *top-level-types* '())
+
+(defmacro define-type (type id &rest args)
+  "Defines a top-level field type."
+  (with-gensyms (fty fid field)
+    `(let* ((,fty ',type)
+            (,fid ',id)
+            (,field (eval-field (append (list :type ,fty :id ,fid) '(,@args)))))
+       (setf *top-level-types* (delete-if (lambda (old) (eq (field-id old) ,fid)) *top-level-types*))
+       (push ,field *top-level-types*)
+       (format nil "Created type (~A ~A)" ,fty ,fid))))
+#+end_src
+** ~define-prose~
+Gitt at man allerede har ~define-type~ trenger man ikke ~define-prose~, men det
+er tungvint å alltid skulle bruke den som ~(paragraph :caption "teksten")~. Man
+skulle mye heller kunne si ~(paragraph "teksten")~. Fordi vi har makroer kan vi
+fint utvide språket vårt med det nye konseptet =prose=, og så definere disse
+tekst-typene med den i stedet.
+
+#+begin_src lisp
+(defmacro define-prose (id &rest args)
+  "Defines prose where the first argument is :CAPTION rather than :ID.  The
+underlying field will be named %ID, while the macro taking caption first is ID."
+  (let* ((macro-id id)
+         (type-id (symbolicate "%" macro-id)))
+    `(progn
+       (define-type +prose+ ,type-id
+         :data-id nil
+         ,@args)
+       (defmacro ,macro-id (caption &rest args)
+         (append (list ',type-id :caption caption) args)))))
+#+end_src
+
+Denne brukes på lik linje som ~define-type~. Her har jeg lagt på ~:ui~ også så vi
+kan rendre html -- dette er kanskje noe som burde ut av definisjonen, men for en
+prototype var det greit å ha det der.
+
+#+begin_src lisp
+(define-prose paragraph
+  :ui (lambda (app field) (spinneret:with-html (:p (field-caption field)))))
+
+(define-prose header
+  :ui (lambda (app field) (spinneret:with-html (:h* (field-caption field)))))
+#+end_src
+** ~iff~
+Igjen kan makroer benyttes til å utvide språket vårt. ~if~ er en av veldig få
+spesialformer i lisp, så jeg kalte den heller ~iff~ ("if and only if", et flott
+ord vi mangler på norsk). Ettersom vi allerede har routing på ~field~ med ~:if~
+blir denne triviell, men allikevel uttrykker den bedre intensjonen. Med denne
+kan vi skrive ~(iff some-expression (child1) (child2))~ i stedet for ~(group :if
+some-expression (child1) (child2))~.
+
+#+begin_src lisp
+(defmacro iff (expr &rest args)
+  `(group ,(gensym "iff#") :if ,expr ,@args))
+#+end_src
+** ~if-else~
+~iff~ er vel og bra, men man kan også ha en else blokk. I slike tilfeller må man
+selv lage to blokker og negere uttrykket i blokk nr 2. Her er det tydelig at man
+også har litt designvalg å gå opp. Burde true og false blokken ta kun ett
+uttrykk, eller en liste med uttrykk? Her har jeg valgt sistnevnte, og vi slipper
+en ~group~ for flere uttrykk mot at vi alltid trenger en liste. Eksempel med to
+felter i true og to i false: ~(if-else some-expression ((t1) (t2)) ((f1) (f2)))~.
+
+#+begin_src lisp
+(defmacro if-else (expr true-children false-children &rest args)
+;; FIXME: We need to parse the arguments using field-spec (?) to allow args before the child/children
+  `(group ,(gensym "if-else#")
+          (iff ,expr ,@args ,@true-children)
+          (iff (not ,expr) ,@args ,@false-children)))
+#+end_src
+** ~yes/no~ og ~yes/no-group~
+Et mønster jeg så i applikasjonen var en bool som bestemte om neste blokk skulle
+vises. Så jeg laget en ~yes/no~ makro som oppretter en bool, og basert på svaret
+her router inn neste verdier. Her ser man at vi lager en gjenbrukbar komponent
+~%yes/no~ som inkluderer tekster og options. Så har vi en ~yes/no-group~ som
+oppretter et slikt ja/nei felt, og en etterfølgende gruppe som kun eksisterer
+dersom man har svart ja.
+
+Dette hjelper å skrive kode som
+#+begin_src lisp
+((bool ektefelle? :caption "Ektefelle?")
+ (group :if foo?
+        (string "Navn")))
+#+end_src
+
+#+begin_src lisp
+((yes/no-group ektefelle? "Ektefelle?"
+               (string "Navn")))
+#+end_src
+
+#+begin_src lisp
+(define-type bool %yes/no
+  :texts ((yes :nb "Ja"
+               :en "No")
+          (no :nb "Nei"
+              :en "No"))
+  :options ((bool yes :value t) (bool no :value nil)))
+
+(defmacro yes/no (id caption &rest args)
+  `(%yes/no ,id :caption ,caption ,@args))
+
+(defmacro yes/no-group (id caption &rest args)
+  (let* ((spec (cdr (field-spec->define-field (append (list '_ id :caption caption) args))))
+         (id (getf spec :id))
+         (caption (getf spec :caption))
+         (children (getf spec :children)))
+    ;; We want to supply args to the yes/no, but we don't want to supply
+    ;; children, id etc
+    (remf spec :id)
+    (remf spec :type)
+    (remf spec :caption)
+    (remf spec :children)
+    `(group ,(gensym "yes/no-group#")
+            ;; TODO: må legge til args minus children
+            (yes/no ,id ,caption ,@spec)
+            (iff ,id
+                 ,@children))))
+#+end_src
+* Fremtidig arbeid
+I tillegg til manglende ~computation~, en frontend m.m. jeg allerede har
+beskrevet, ville det vært nyttig å koble seg opp mot Altinn API-er.
+
+Nå gikk jeg for Common Lisp, som vil si at man må kommunisere med den over en
+socket e.l. om man ønsker å bruke den via C# da det ikke finnes noen komplette
+implementasjoner for dotnet. Finnes Embeddable Common Lisp (ECL), men da må man
+kommunisere med et C bibliotek igjen. Finnes også et interop bibliotek så man
+kan kalle dotnet fra Common Lisp ([[https://github.com/Lovesan/bike][Bike]]) om man vil snu på det. Man kunne gått
+for Scheme (IronScheme), Clojure (ClojureCLR) eller en enklere ting som [[https://github.com/microsoft/schemy][Schemy]].
+
+Man må i hvert fall passe seg for å lage en helt egen ekstern DSL. Det virker
+som en lettvint løsning, men å designe et språk er veldig vanskelig, og resultatet
+blir gjerne et makkverk over tid selv ikke en forelder kan like synet av.
+Anbefaler på det sterkeste å benytte noe som allerede er designet og utprøvd. Og
+det er utrolig mye mer jobb å lage en ekstern DSL enn en EDSL -- eller man kan
+benytte Racket.
+* Konklusjon
+#+begin_quote
+Simple things should be simple, complex things should be possible
+
+    -- Alan Key
+#+end_quote
+
+Jeg håper dette har vært et nyttig innspill til hvordan man kan tenke annerledes
+rundt utvikling av skjemaer. Skjemaer er stort sett skjemadefinisjoner, routing,
+valideringer og kalkuleringer. Løser man dette smidig er man langt på vei, men man må
+samtidig ha mulighet for å droppe ned og kode litt da det kan bli nødvendig.
+
+Man kan antageligvis kunne lage skjemaer med en liten brøkdel av kode, tid og
+vedilkeholdskostnad om vi får gode abstraksjoner på plass.
+
+Det er kanskje litt vel esoterisk med en EDSL laget i Common Lisp, men man kan
+lage API-er og lagdeling slik at vi både får høynivå beskrivelse av skjemaer
+med mulighet til å droppe ned til lavere nivå i alle språk.
+
+Synd jeg ikke har hatt tiden til å utforske dynamikk, routing, tekster og
+skjemaflyt/frontend i mer detalj, men håper dere kan myse litt og se at det kan
+evalueres av motoren uten at man trenger å skrive noe mer enn de rene uttrykkene
+jeg har i eksemplene.
+
+Bare å kontakte meg på [[mailto:simendsjo@gmail.com][simendsjo@gmail.com]] om dere vil diskutere noe, men det er
+begrenset hvor mye tid jeg kan bistå med da jeg ikke har veldig mye fritid om
+dagen.
